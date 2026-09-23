@@ -1,0 +1,7 @@
+# GitHub Linguist: keep the language bar focused on application code.
+* linguist-detectable=false
+*.vue linguist-detectable=true
+*.ts linguist-detectable=true
+
+# Consistent diffs across Windows, GitHub Actions, and GitHub.
+* text=auto eol=lf
