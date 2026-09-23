@@ -5,6 +5,7 @@ import { useAuth } from './composables/useAuth'
 import { useExamAttempt } from './composables/useExamAttempt'
 import { useProfile } from './composables/useProfile'
 import { useVariants } from './composables/useVariants'
+import { questionImageUrl } from './lib/supabase'
 import AppHeader from './components/AppHeader.vue'
 
 type View = 'welcome' | 'exam' | 'result' | 'profile'
@@ -60,16 +61,18 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
       <article class="question-card">
         <div class="question-meta"><span>Задание {{ question.id }} из {{ questions.length }}</span><span>{{ question.points }} {{ question.points === 1 ? 'балл' : question.points < 5 ? 'балла' : 'баллов' }}</span></div>
         <h1>{{ question.prompt }}</h1>
-        <ol v-if="question.options" class="options"><li v-for="option in question.options" :key="option">{{ option }}</li></ol>
+        <figure v-if="question.imagePath" class="question-figure"><img :src="questionImageUrl(question.imagePath)" :alt="`Схема к заданию ${question.id}`" loading="lazy" /></figure>
+        <div v-if="question.options && !question.autonumber" class="option-columns"><div><p>Первый столбец</p><ol class="options labelled"><li v-for="option in question.options.filter((item) => /^[А-ЯЁ]/.test(item))" :key="option">{{ option }}</li></ol></div><div><p>Второй столбец</p><ol class="options labelled"><li v-for="option in question.options.filter((item) => /^[0-9]/.test(item))" :key="option">{{ option }}</li></ol></div></div>
+        <ol v-else-if="question.options" class="options"><li v-for="option in question.options" :key="option">{{ option }}</li></ol>
         <div class="answer-area">
           <label :for="`answer-${question.id}`">{{ question.kind === 'short' ? 'Ответ' : 'Развёрнутый ответ' }}</label>
           <input v-if="question.kind === 'short'" :id="`answer-${question.id}`" v-model="answers[question.id]" autocomplete="off" inputmode="text" maxlength="16" placeholder="Введите ответ" />
           <textarea v-else :id="`answer-${question.id}`" v-model="answers[question.id]" placeholder="Опишите ход решения и ответ" rows="8"></textarea>
           <p>{{ question.kind === 'short' ? 'Без пробелов и знаков препинания, если это не указано в задании.' : 'Развёрнутые ответы будут сохранены. Сверить их с эталоном можно после сдачи.' }}</p>
         </div>
-        <div class="question-actions"><button class="button button-ghost" type="button" :disabled="currentIndex === 0" @click="previous"><ChevronLeft :size="18" aria-hidden="true" /> Назад</button><button v-if="currentIndex < questions.length - 1" class="button button-primary" type="button" @click="next">Дальше <ChevronRight :size="18" aria-hidden="true" /></button><button v-else class="button button-primary" type="button" @click="submitExam"><Send :size="17" aria-hidden="true" /> Сдать вариант</button></div>
+        <div class="question-actions"><button class="button button-ghost" type="button" :disabled="currentIndex === 0" @click="previous"><ChevronLeft :size="18" aria-hidden="true" /> Назад</button><button v-if="currentIndex < questions.length - 1" class="button button-primary" type="button" @click="next">Дальше <ChevronRight :size="18" aria-hidden="true" /></button><button v-else class="button button-primary" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam"><Send :size="17" aria-hidden="true" /> Сдать вариант</button></div>
       </article>
-      <aside class="exam-side"><div class="progress-card"><span>Заполнено</span><strong>{{ answeredCount }}<small>/{{ questions.length }}</small></strong><div class="progress"><i :style="{ width: `${questions.length ? answeredCount / questions.length * 100 : 0}%` }"></i></div></div><button class="button button-outline" type="button" @click="submitExam">Сдать вариант</button></aside>
+      <aside class="exam-side"><div class="progress-card"><span>Заполнено</span><strong>{{ answeredCount }}<small>/{{ questions.length }}</small></strong><div class="progress"><i :style="{ width: `${questions.length ? answeredCount / questions.length * 100 : 0}%` }"></i></div></div><button class="button button-outline" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam">Сдать вариант</button></aside>
     </section>
 
     <section v-else-if="view === 'profile'" class="profile shell">

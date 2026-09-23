@@ -27,7 +27,12 @@ export async function signInWithTwitch() {
 export type AttemptScore = { primary_score: number; secondary_score: number }
 export type AttemptReview = { question_position: number; is_correct: boolean | null; correct_answer: string | null; solution: string | null }
 export type UserStatistics = { completed_attempts: number; best_secondary_score: number | null; average_secondary_score: number | null; latest_submitted_at: string | null }
-export type VariantQuestion = { position: number; kind: 'short' | 'long'; points: number; prompt: string; options: string[] | null }
+export type VariantQuestion = { position: number; kind: 'short' | 'long'; points: number; prompt: string; options: string[] | null; image_path: string | null }
+
+export function questionImageUrl(path: string) {
+  if (!supabase) return ''
+  return supabase.storage.from('exam-images').getPublicUrl(path).data.publicUrl
+}
 export type ExamVariant = { slug: string; title: string; duration_seconds: number; question_count: number; max_primary: number; score_scale: number[] }
 
 function client() {
@@ -50,7 +55,7 @@ export async function startAttempt(slug: string) {
 export async function getVariantQuestions(slug: string): Promise<Question[]> {
   const { data, error } = await client().rpc('variant_questions', { target_slug: slug })
   if (error) throw error
-  return (data as VariantQuestion[]).map((item) => ({ id: item.position, kind: item.kind, points: item.points, prompt: item.prompt, options: item.options ?? undefined }))
+  return (data as VariantQuestion[]).map((item) => ({ id: item.position, kind: item.kind, points: item.points, prompt: item.prompt, options: item.options ?? undefined, imagePath: item.image_path ?? undefined, autonumber: !item.options?.some((option) => /^[А-ЯЁA-Z0-9]+\)/.test(option)) }))
 }
 
 export async function saveAnswer(attemptId: string, position: number, value: string) {
