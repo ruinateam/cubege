@@ -1,7 +1,8 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { ensureAnonymousSession, signInWithTwitch, supabase } from '@/lib/supabase'
+import { ensureAnonymousSession, setDeviceId, signInWithTwitch, supabase } from '@/lib/supabase'
+import { ensureDeviceId } from '@/lib/device'
 
-export type AuthUser = { label: string; login: string | null; avatarUrl: string | null; isAnonymous: boolean }
+export type AuthUser = { label: string; login: string | null; avatarUrl: string | null; isAnonymous: boolean; isAdmin: boolean }
 type SupabaseUser = { email?: string | null; is_anonymous?: boolean; user_metadata: Record<string, unknown>; identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }> }
 
 function validImageUrl(value: unknown) {
@@ -30,8 +31,14 @@ export function useAuth() {
     const identity = user.identities?.find((item) => item.provider === 'twitch')?.identity_data ?? {}
     const login = firstText(identity.preferred_username, identity.login, identity.user_name, user.user_metadata.preferred_username, user.user_metadata.user_name, user.user_metadata.nickname)
     const label = firstText(identity.display_name, identity.full_name, identity.name, user.user_metadata.display_name, user.user_metadata.full_name, user.user_metadata.name, login, user.email)
-    authUser.value = { label: label || 'Twitch подключён', login, avatarUrl: validImageUrl(identity.picture) ?? validImageUrl(identity.avatar_url) ?? validImageUrl(user.user_metadata.avatar_url), isAnonymous: Boolean(user.is_anonymous) }
+    authUser.value = { label: label || 'Twitch подключён', login, avatarUrl: validImageUrl(identity.picture) ?? validImageUrl(identity.avatar_url) ?? validImageUrl(user.user_metadata.avatar_url), isAnonymous: Boolean(user.is_anonymous), isAdmin: user.user_metadata.role === 'admin' }
     if (!user.is_anonymous && login) void enrichTwitchProfile(login)
+  }
+
+  async function bindDevice() {
+    const deviceId = ensureDeviceId()
+    if (!deviceId) return
+    try { await setDeviceId(deviceId) } catch { /* Профиль уже привязан или сессия гостевая без профиля. */ }
   }
 
   async function initialize() {
@@ -40,7 +47,8 @@ export function useAuth() {
       if (!supabase) return
       const { data } = await supabase.auth.getUser()
       setAuthUser(data.user)
-      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => setAuthUser(session?.user ?? null))
+      void bindDevice()
+      const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => { setAuthUser(session?.user ?? null); if (session?.user) void bindDevice() })
       unsubscribe = () => listener.subscription.unsubscribe()
     } catch { authMessage.value = 'Не удалось создать анонимную сессию. Черновик сохранится только на этом устройстве.' }
   }

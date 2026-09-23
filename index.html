@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f6f7f5" />
+    <meta name="theme-color" content="#faf6ee" />
+    <script>
+      try {
+        var t = localStorage.getItem('cubege-theme');
+        if (t !== 'light' && t !== 'dark') t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+        var m = document.querySelector('meta[name="theme-color"]');
+        if (m) m.setAttribute('content', t === 'dark' ? '#161616' : '#faf6ee');
+      } catch (e) {}
+    </script>
     <link rel="icon" type="image/svg+xml" href="/src/assets/brand.svg" />
     <meta name="description" content="Пробный ЕГЭ по Minecraft: 20 заданий, таймер и разбор." />
     <title>ЕГЭ по кубам</title>

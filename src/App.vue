@@ -6,13 +6,15 @@ import { useExamAttempt } from './composables/useExamAttempt'
 import { useProfile } from './composables/useProfile'
 import { useVariants } from './composables/useVariants'
 import { questionImageUrl } from './lib/supabase'
+import AdminPanel from './components/AdminPanel.vue'
 import AppHeader from './components/AppHeader.vue'
+import TopPanel from './components/TopPanel.vue'
 
-type View = 'welcome' | 'exam' | 'result' | 'profile'
+type View = 'welcome' | 'exam' | 'result' | 'profile' | 'admin' | 'top'
 const view = ref<View>('welcome')
 const accountMenuOpen = ref(false)
 const { authUser, authMessage, connectTwitch, signOut: endSession } = useAuth()
-const { userStatistics, loadStatistics } = useProfile()
+const { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, loadProfile, submitNickname } = useProfile()
 const { variants, selectedSlug, selectedVariant, variantsError, isLoadingVariants, loadVariants } = useVariants()
 const { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, serverReview, isSubmitting, isLoading, start, submit, setQuestion, reset: resetAttempt } = useExamAttempt()
 const shortPoints = primaryScore
@@ -30,13 +32,23 @@ async function submitExam() {
 function previous() { if (currentIndex.value > 0) setQuestion(currentIndex.value - 1) }
 function next() { if (currentIndex.value < questions.value.length - 1) setQuestion(currentIndex.value + 1) }
 function reset() { resetAttempt(); view.value = 'welcome' }
-async function openProfile() { accountMenuOpen.value = false; view.value = 'profile'; await loadStatistics() }
+async function openProfile() { accountMenuOpen.value = false; view.value = 'profile'; await Promise.all([loadStatistics(), loadProfile()]) }
+function openTop() { accountMenuOpen.value = false; view.value = 'top' }
+function openAdmin() { if (!authUser.value?.isAdmin) return; accountMenuOpen.value = false; view.value = 'admin' }
+function reviewStatus(item: { id: number; kind: string }) {
+  const review = serverReview.value[item.id]
+  if (!review) return 'Ручная проверка'
+  if (item.kind === 'long' && review.graded) return `Проверено · ${review.awarded_points}/${review.max_points}`
+  if (review.is_correct === true) return 'Верно'
+  if (review.is_correct === false) return 'Неверно'
+  return 'Ручная проверка'
+}
 async function signOut() { await endSession(); accountMenuOpen.value = false; view.value = 'welcome' }
 </script>
 
 <template>
   <a class="skip-link" href="#content">К заданиям</a>
-  <AppHeader :view="view" :formatted-time="formattedTime" :is-urgent="secondsLeft < 600" :user="authUser" :menu-open="accountMenuOpen" @home="view = 'welcome'" @connect="connectTwitch" @toggle-menu="accountMenuOpen = !accountMenuOpen" @profile="openProfile" @sign-out="signOut" />
+  <AppHeader :view="view" :formatted-time="formattedTime" :is-urgent="secondsLeft < 600" :user="authUser" :menu-open="accountMenuOpen" @home="view = 'welcome'" @connect="connectTwitch" @toggle-menu="accountMenuOpen = !accountMenuOpen" @profile="openProfile" @admin="openAdmin" @top="openTop" @sign-out="signOut" />
 
   <main id="content">
     <section v-if="view === 'welcome'" class="welcome shell">
@@ -44,7 +56,7 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
       <h1>ЕГЭ по <span>кубам</span></h1>
       <p class="lede">Проверь, насколько хорошо ты знаешь Minecraft: {{ selectedVariant?.question_count ?? '—' }} заданий, {{ selectedVariant ? Math.round(selectedVariant.duration_seconds / 60) : '—' }} минут и подробный разбор после сдачи.</p>
       <div v-if="variants.length > 1" class="variant-picker" role="radiogroup" aria-label="Выбор варианта"><button v-for="item in variants" :key="item.slug" type="button" role="radio" :aria-checked="item.slug === selectedSlug" :class="{ active: item.slug === selectedSlug }" @click="selectedSlug = item.slug">{{ item.title }}</button></div>
-      <div class="welcome-actions"><button class="button button-primary" type="button" :disabled="isLoading || isLoadingVariants || !selectedVariant" @click="startExam">{{ isLoading ? 'Загрузка…' : 'Начать вариант' }} <ChevronRight v-if="!isLoading" :size="18" aria-hidden="true" /></button><span>Результат сохранится в твоём профиле</span></div>
+      <div class="welcome-actions"><button class="button button-primary" type="button" :disabled="isLoading || isLoadingVariants || !selectedVariant" @click="startExam">{{ isLoading ? 'Загрузка…' : 'Начать вариант' }} <ChevronRight v-if="!isLoading" :size="18" aria-hidden="true" /></button><button class="button button-outline" type="button" @click="openTop"><Trophy :size="17" aria-hidden="true" /> Топ</button><span>Результат сохранится в твоём профиле</span></div>
       <p v-if="authMessage || variantsError" class="auth-message" role="status">{{ authMessage || variantsError }}</p>
       <dl class="stats"><div><dt>{{ selectedVariant?.question_count ?? '—' }}</dt><dd>заданий</dd></div><div><dt>{{ selectedVariant ? Math.round(selectedVariant.duration_seconds / 60) : '—' }}</dt><dd>минут</dd></div><div><dt>{{ selectedVariant?.max_primary ?? '—' }}</dt><dd>первичных баллов</dd></div></dl>
       <div class="exam-note"><span class="note-icon" aria-hidden="true">!</span><p><strong>Без спойлеров.</strong> Ключи и эталонные решения появятся только после отправки варианта.</p></div>
@@ -77,13 +89,23 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
 
     <section v-else-if="view === 'profile'" class="profile shell">
       <div class="profile-heading"><div class="profile-avatar"><img v-if="authUser?.avatarUrl" :src="authUser.avatarUrl" alt="" /><span v-else>{{ authUser?.label.slice(0, 1) }}</span></div><div><p class="eyebrow">Профиль Twitch</p><h1>{{ authUser?.label }}</h1><p v-if="authUser?.login">@{{ authUser.login }}</p></div></div>
+      <div class="nickname-block">
+        <label for="nickname">Ник для топа</label>
+        <div class="nickname-row"><input id="nickname" v-model="nicknameDraft" autocomplete="off" maxlength="16" spellcheck="false" placeholder="Steve_2026" :disabled="profile?.nickname_status === 'approved'" /><button class="button button-outline" type="button" :disabled="isRequestingNickname || profile?.nickname_status === 'approved'" @click="submitNickname">Отправить</button></div>
+        <p v-if="profile?.nickname_status === 'approved'" class="nickname-status">В топе как <strong>{{ profile.nickname }}</strong></p>
+        <p v-else-if="profile?.nickname" class="nickname-status">На проверке: <strong class="nickname-pending">{{ profile.nickname }}</strong></p>
+        <p v-else class="nickname-hint">3–16 латинских букв, цифр или _. После проверки ник попадёт в топ.</p>
+        <p v-if="nicknameMessage" class="nickname-status">{{ nicknameMessage }}</p>
+      </div>
       <div class="profile-stats"><div><span>Пройдено вариантов</span><strong>{{ userStatistics?.completed_attempts ?? '—' }}</strong></div><div><span>Лучший результат</span><strong>{{ userStatistics?.best_secondary_score ?? '—' }}<small v-if="userStatistics?.best_secondary_score">/100</small></strong></div><div><span>Средний результат</span><strong>{{ userStatistics?.average_secondary_score ?? '—' }}<small v-if="userStatistics?.average_secondary_score">/100</small></strong></div></div>
       <button class="button button-primary" type="button" @click="view = 'welcome'">Пройти вариант</button>
     </section>
+    <AdminPanel v-else-if="view === 'admin' && authUser?.isAdmin" />
+    <TopPanel v-else-if="view === 'top'" />
     <section v-else class="result shell">
       <div class="result-hero"><div class="result-icon"><Trophy :size="28" aria-hidden="true" /></div><p class="eyebrow">{{ activeTitle || 'Вариант сдан' }}</p><h1>{{ secondaryScore }} <span>баллов</span></h1><p>Твоё звание — <strong>{{ rank }}</strong>. Краткие ответы проверены автоматически; развёрнутые можно сравнить с эталоном после ручной проверки.</p><button class="button button-outline" type="button" @click="reset">Пройти ещё раз</button></div>
       <div class="score-cards"><div><span>Первичный балл</span><strong>{{ primaryScore }}<small>/{{ maxPrimary }}</small></strong></div><div><span>Вторичный балл</span><strong>{{ secondaryScore }}<small>/100</small></strong></div><div><span>Краткие ответы</span><strong>{{ shortPoints }}<small>/{{ shortCount }}</small></strong></div></div>
-      <section class="review"><div class="section-heading"><div><p class="eyebrow">Разбор</p><h2>Твои ответы</h2></div><span>{{ answeredCount }} из {{ questions.length }} заполнено</span></div><article v-for="item in questions" :key="item.id" class="review-item" :class="{ correct: serverReview[item.id]?.is_correct === true, missed: serverReview[item.id]?.is_correct === false }"><div class="review-number">{{ item.id }}</div><div><h3>{{ item.prompt }}</h3><p>Твой ответ: <strong>{{ answers[item.id] || 'нет ответа' }}</strong><template v-if="serverReview[item.id]?.correct_answer"> · Верный ответ: <strong>{{ serverReview[item.id].correct_answer }}</strong></template></p><details v-if="serverReview[item.id]?.solution"><summary>Показать эталонное решение</summary><p>{{ serverReview[item.id].solution }}</p></details></div><span class="status">{{ serverReview[item.id]?.is_correct === true ? 'Верно' : serverReview[item.id]?.is_correct === false ? 'Неверно' : 'Ручная проверка' }}</span></article></section>
+      <section class="review"><div class="section-heading"><div><p class="eyebrow">Разбор</p><h2>Твои ответы</h2></div><span>{{ answeredCount }} из {{ questions.length }} заполнено</span></div><article v-for="item in questions" :key="item.id" class="review-item" :class="{ correct: serverReview[item.id]?.is_correct === true, missed: serverReview[item.id]?.is_correct === false }"><div class="review-number">{{ item.id }}</div><div><h3>{{ item.prompt }}</h3><p>Твой ответ: <strong>{{ answers[item.id] || 'нет ответа' }}</strong><template v-if="serverReview[item.id]?.correct_answer"> · Верный ответ: <strong>{{ serverReview[item.id].correct_answer }}</strong></template></p><details v-if="serverReview[item.id]?.solution"><summary>Показать эталонное решение</summary><p>{{ serverReview[item.id].solution }}</p></details></div><span class="status">{{ reviewStatus(item) }}</span></article></section>
     </section>
   </main>
 </template>
