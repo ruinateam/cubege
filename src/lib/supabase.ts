@@ -30,7 +30,7 @@ export type GradingAttempt = { attempt_id: string; user_email: string | null; va
 export type LongAnswer = { question_position: number; prompt: string; max_points: number; value: string; awarded_points: number; graded: boolean; solution: string | null }
 export type UserProfile = { nickname: string | null; nickname_status: 'pending' | 'approved' | 'rejected' }
 export type PendingNickname = { user_id: string; user_email: string | null; nickname: string; created_at: string }
-export type LeaderboardRow = { nickname: string; pending: boolean; best_secondary: number; completed: number; latest: string }
+export type LeaderboardRow = { nickname: string; pending: boolean; verified: boolean; best_secondary: number; completed: number; latest: string }
 export type UserStatistics = { completed_attempts: number; best_secondary_score: number | null; average_secondary_score: number | null; latest_submitted_at: string | null }
 export type VariantQuestion = { position: number; kind: 'short' | 'long'; points: number; prompt: string; options: string[] | null; image_path: string | null }
 
@@ -91,6 +91,11 @@ export async function setDeviceId(deviceId: string) {
   if (error) throw error
 }
 
+export async function claimGuestData(deviceId: string) {
+  const { error } = await client().rpc('claim_guest_data', { device: deviceId })
+  if (error) throw error
+}
+
 export async function getAttemptsForGrading() {
   const { data, error } = await client().rpc('attempts_for_grading')
   if (error) throw error
@@ -115,8 +120,9 @@ export async function getMyProfile() {
 }
 
 export async function requestNickname(nickname: string) {
-  const { error } = await client().rpc('request_nickname', { requested_nickname: nickname })
+  const { data, error } = await client().rpc('request_nickname', { requested_nickname: nickname })
   if (error) throw error
+  return data as 'pending' | 'approved' | 'rejected'
 }
 
 export async function getPendingNicknames() {

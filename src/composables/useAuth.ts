@@ -1,5 +1,5 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
-import { ensureAnonymousSession, setDeviceId, signInWithTwitch, supabase } from '@/lib/supabase'
+import { ensureAnonymousSession, setDeviceId, claimGuestData, signInWithTwitch, supabase } from '@/lib/supabase'
 import { ensureDeviceId } from '@/lib/device'
 
 export type AuthUser = { label: string; login: string | null; avatarUrl: string | null; isAnonymous: boolean; isAdmin: boolean }
@@ -31,7 +31,7 @@ export function useAuth() {
     const identity = user.identities?.find((item) => item.provider === 'twitch')?.identity_data ?? {}
     const login = firstText(identity.preferred_username, identity.login, identity.user_name, user.user_metadata.preferred_username, user.user_metadata.user_name, user.user_metadata.nickname)
     const label = firstText(identity.display_name, identity.full_name, identity.name, user.user_metadata.display_name, user.user_metadata.full_name, user.user_metadata.name, login, user.email)
-    authUser.value = { label: label || 'Twitch подключён', login, avatarUrl: validImageUrl(identity.picture) ?? validImageUrl(identity.avatar_url) ?? validImageUrl(user.user_metadata.avatar_url), isAnonymous: Boolean(user.is_anonymous), isAdmin: user.user_metadata.role === 'admin' }
+    authUser.value = { label: label || (user.is_anonymous ? 'Гость' : 'Twitch подключён'), login, avatarUrl: validImageUrl(identity.picture) ?? validImageUrl(identity.avatar_url) ?? validImageUrl(user.user_metadata.avatar_url), isAnonymous: Boolean(user.is_anonymous), isAdmin: user.user_metadata.role === 'admin' }
     if (!user.is_anonymous && login) void enrichTwitchProfile(login)
   }
 
@@ -39,6 +39,7 @@ export function useAuth() {
     const deviceId = ensureDeviceId()
     if (!deviceId) return
     try { await setDeviceId(deviceId) } catch { /* Профиль уже привязан или сессия гостевая без профиля. */ }
+    try { if (authUser.value && !authUser.value.isAnonymous) await claimGuestData(deviceId) } catch { /* Нечего забирать. */ }
   }
 
   async function initialize() {

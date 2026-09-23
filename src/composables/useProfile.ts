@@ -25,9 +25,9 @@ export function useProfile() {
     isRequestingNickname.value = true
     nicknameMessage.value = ''
     try {
-      await requestNickname(value)
+      const status = await requestNickname(value)
       await loadProfile()
-      nicknameMessage.value = 'Отправлено на проверку.'
+      nicknameMessage.value = status === 'approved' ? 'Ник принят — ты в топе.' : 'Отправлено на проверку.'
     } catch {
       nicknameMessage.value = 'Не удалось отправить ник. Возможно, он уже занят.'
     } finally {
