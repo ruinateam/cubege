@@ -1,5 +1,5 @@
 import { computed, ref } from 'vue'
-import { getVariants, type ExamVariant } from '@/lib/supabase'
+import { ensureAnonymousSession, getVariants, type ExamVariant } from '@/lib/supabase'
 
 export function useVariants() {
   const variants = ref<ExamVariant[]>([])
@@ -13,6 +13,7 @@ export function useVariants() {
     if (variants.value.length || isLoadingVariants.value) return
     isLoadingVariants.value = true
     try {
+      try { await ensureAnonymousSession() } catch { /* Каталог вариантов публичный: anon-роль тоже имеет доступ. */ }
       variants.value = await getVariants()
       if (!selectedSlug.value && variants.value.length) selectedSlug.value = variants.value[0].slug
       if (!variants.value.length) variantsError.value = 'Опубликованных вариантов пока нет.'
