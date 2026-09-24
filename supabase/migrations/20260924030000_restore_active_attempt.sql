@@ -58,7 +58,7 @@ begin
     and variant_id = target_variant
     and submitted_at is null
     and expires_at > now()
-  order by created_at desc
+  order by started_at desc
   limit 1;
 
   if attempt is null then
