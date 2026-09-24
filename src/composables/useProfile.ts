@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { getMyProfile, getUserStatistics, requestNickname, type UserProfile, type UserStatistics } from '@/lib/supabase'
+import { getMyProfile, getUserStatistics, requestNickname, syncTwitchNickname, type UserProfile, type UserStatistics } from '@/lib/supabase'
+import { useLeaderboardVisibility } from '@/composables/useLeaderboardVisibility'
 
 export function useProfile() {
   const userStatistics = ref<UserStatistics | null>(null)
@@ -7,14 +8,25 @@ export function useProfile() {
   const nicknameDraft = ref('')
   const nicknameMessage = ref('')
   const isRequestingNickname = ref(false)
+  const isProfileLoaded = ref(false)
+  const profileLoadError = ref(false)
+  const leaderboardStatus = useLeaderboardVisibility(profile)
 
   async function loadStatistics() { try { userStatistics.value = await getUserStatistics() } catch { userStatistics.value = null } }
   async function loadProfile() {
     nicknameMessage.value = ''
+    profileLoadError.value = false
+    isProfileLoaded.value = false
     try {
+      try { await syncTwitchNickname() } catch { /* A profile can still load when Twitch sync is unavailable. */ }
       profile.value = await getMyProfile()
       if (profile.value?.nickname) nicknameDraft.value = profile.value.nickname
-    } catch { profile.value = null }
+    } catch {
+      profile.value = null
+      profileLoadError.value = true
+    } finally {
+      isProfileLoaded.value = true
+    }
   }
   async function submitNickname() {
     const value = nicknameDraft.value.trim()
@@ -27,12 +39,19 @@ export function useProfile() {
     try {
       const status = await requestNickname(value)
       await loadProfile()
-      nicknameMessage.value = status === 'approved' ? 'Ник принят — ты в топе.' : 'Отправлено на проверку.'
+      nicknameMessage.value = status === 'approved' ? 'Ник принят. Результат участвует в топе.' : 'Ник отправлен на проверку.'
     } catch {
       nicknameMessage.value = 'Не удалось отправить ник. Возможно, он уже занят.'
     } finally {
       isRequestingNickname.value = false
     }
   }
-  return { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, loadProfile, submitNickname }
+  function clearProfile() {
+    profile.value = null
+    nicknameDraft.value = ''
+    nicknameMessage.value = ''
+    profileLoadError.value = false
+    isProfileLoaded.value = false
+  }
+  return { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, isProfileLoaded, profileLoadError, leaderboardStatus, loadProfile, submitNickname, clearProfile }
 }

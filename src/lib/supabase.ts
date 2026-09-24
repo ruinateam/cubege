@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import type { Question } from '@/data/exam'
+import type { NicknameStatus } from '@/types/leaderboard'
 
 const url = import.meta.env.VITE_SUPABASE_URL
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -28,9 +29,10 @@ export type AttemptScore = { primary_score: number; secondary_score: number }
 export type AttemptReview = { question_position: number; is_correct: boolean | null; correct_answer: string | null; solution: string | null; awarded_points: number; max_points: number; graded: boolean }
 export type GradingAttempt = { attempt_id: string; user_email: string | null; variant_slug: string; variant_title: string; submitted_at: string; primary_score: number; secondary_score: number; long_answered: number; long_graded: number }
 export type LongAnswer = { question_position: number; prompt: string; max_points: number; value: string; awarded_points: number; graded: boolean; solution: string | null }
-export type UserProfile = { nickname: string | null; nickname_status: 'pending' | 'approved' | 'rejected' }
+export type { NicknameStatus } from '@/types/leaderboard'
+export type UserProfile = { nickname: string | null; nickname_status: NicknameStatus }
 export type PendingNickname = { user_id: string; user_email: string | null; nickname: string; created_at: string }
-export type LeaderboardRow = { nickname: string; pending: boolean; verified: boolean; best_secondary: number; completed: number; latest: string }
+export type LeaderboardRow = { nickname: string; generated_nickname: boolean; verified: boolean; is_current_user: boolean; best_secondary: number; completed: number; latest: string }
 export type UserStatistics = { completed_attempts: number; best_secondary_score: number | null; average_secondary_score: number | null; latest_submitted_at: string | null }
 export type VariantQuestion = { position: number; kind: 'short' | 'long'; points: number; prompt: string; options: string[] | null; image_path: string | null }
 
@@ -122,7 +124,13 @@ export async function getMyProfile() {
 export async function requestNickname(nickname: string) {
   const { data, error } = await client().rpc('request_nickname', { requested_nickname: nickname })
   if (error) throw error
-  return data as 'pending' | 'approved' | 'rejected'
+  return data as NicknameStatus
+}
+
+export async function syncTwitchNickname() {
+  const { data, error } = await client().rpc('sync_twitch_nickname')
+  if (error) throw error
+  return data as NicknameStatus | null
 }
 
 export async function getPendingNicknames() {
