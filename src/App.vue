@@ -5,7 +5,7 @@ import { useAuth } from './composables/useAuth'
 import { useExamAttempt } from './composables/useExamAttempt'
 import { useProfile } from './composables/useProfile'
 import { useVariants } from './composables/useVariants'
-import { questionImageUrl, setAttemptLeaderboardVisibility } from './lib/supabase'
+import { questionImageUrl, getAttemptDetail, getMyAttempts, setAttemptLeaderboardVisibility, type MyAttempt } from './lib/supabase'
 import type { ResultPublicationStatus } from './types/leaderboard'
 import AdminPanel from './components/AdminPanel.vue'
 import AppHeader from './components/AppHeader.vue'
@@ -18,8 +18,12 @@ const accountMenuOpen = ref(false)
 const { authUser, authMessage, connectTwitch, signOut: endSession } = useAuth()
 const { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, isProfileLoaded, profileLoadError, leaderboardStatus, latestAttempt, latestAttemptMessage, isUpdatingLatestAttempt, loadProfile, loadLatestAttempt, setLatestAttemptVisibility, submitNickname, clearProfile } = useProfile()
 const { variants, selectedSlug, selectedVariant, variantsError, isLoadingVariants, loadVariants } = useVariants()
-const { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, activeAttemptId, serverReview, flaggedQuestionIds, isSubmitting, isLoading, start, restoreActiveAttempt, submit, setQuestion, toggleQuestionFlag, reset: resetAttempt } = useExamAttempt()
+const { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, activeAttemptId, serverReview, flaggedQuestionIds, isSubmitting, isLoading, start, restoreActiveAttempt, submit, setQuestion, showSubmittedDetail, toggleQuestionFlag, reset: resetAttempt } = useExamAttempt()
 const shortPoints = primaryScore
+const myAttempts = ref<MyAttempt[]>([])
+const isLoadingHistory = ref(false)
+const historyError = ref('')
+const openingAttemptId = ref<string | null>(null)
 const resultPublicationStatus = ref<ResultPublicationStatus>('undecided')
 const isUpdatingPublication = ref(false)
 const publicationMessage = ref('')
@@ -78,7 +82,28 @@ async function setResultPublication(visible: boolean) {
 function previous() { if (currentIndex.value > 0) setQuestion(currentIndex.value - 1) }
 function next() { if (currentIndex.value < questions.value.length - 1) setQuestion(currentIndex.value + 1) }
 function reset() { resetAttempt(); view.value = 'welcome' }
-async function openProfile() { accountMenuOpen.value = false; view.value = 'profile'; await Promise.all([loadStatistics(), loadProfile(), loadLatestAttempt()]) }
+async function openProfile() { accountMenuOpen.value = false; view.value = 'profile'; await Promise.all([loadStatistics(), loadProfile(), loadLatestAttempt(), loadHistory()]) }
+async function loadHistory() {
+  isLoadingHistory.value = true
+  historyError.value = ''
+  try { myAttempts.value = await getMyAttempts() }
+  catch { historyError.value = 'Не удалось загрузить историю попыток. Попробуй позже.' }
+  finally { isLoadingHistory.value = false }
+}
+async function openHistoryAttempt(attempt: MyAttempt) {
+  if (openingAttemptId.value) return
+  openingAttemptId.value = attempt.attempt_id
+  historyError.value = ''
+  try {
+    const rows = await getAttemptDetail(attempt.attempt_id)
+    showSubmittedDetail(rows)
+    resultPublicationStatus.value = attempt.leaderboard_visible ? 'published' : 'private'
+    publicationMessage.value = ''
+    view.value = 'result'
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  } catch { historyError.value = 'Не удалось открыть разбор. Проверь соединение и попробуй ещё раз.' }
+  finally { openingAttemptId.value = null }
+}
 async function useTwitchNickname() { if (!authUser.value?.login) return; nicknameDraft.value = authUser.value.login; await submitNickname() }
 function openTop() { accountMenuOpen.value = false; view.value = 'top' }
 function openAdmin() { if (!authUser.value?.isAdmin) return; accountMenuOpen.value = false; view.value = 'admin' }
@@ -190,6 +215,19 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
         </template>
         <p v-else>Сданных вариантов пока нет.</p>
         <p v-if="latestAttemptMessage" class="auth-message" role="status">{{ latestAttemptMessage }}</p>
+      </section>
+      <section class="latest-attempt-publication" aria-labelledby="history-heading">
+        <p class="eyebrow">История</p>
+        <h2 id="history-heading">Мои результаты</h2>
+        <p v-if="isLoadingHistory" class="admin-empty">Загрузка…</p>
+        <p v-else-if="!myAttempts.length && !historyError" class="admin-empty">Сданных вариантов пока нет.</p>
+        <div v-else class="grading-list">
+          <div v-for="attempt in myAttempts" :key="attempt.attempt_id" class="grading-item">
+            <span><strong>{{ attempt.variant_title }}</strong><small>{{ formatAttemptDate(attempt.submitted_at) }} · {{ attempt.primary_score }}/{{ attempt.secondary_score }}{{ attempt.leaderboard_visible ? ' · в топе' : '' }}</small></span>
+            <button class="button button-outline" type="button" :disabled="openingAttemptId === attempt.attempt_id" @click="openHistoryAttempt(attempt)">{{ openingAttemptId === attempt.attempt_id ? 'Открываю…' : 'Разбор' }}</button>
+          </div>
+        </div>
+        <p v-if="historyError" class="auth-message" role="alert">{{ historyError }}</p>
       </section>
       <button class="button button-primary" type="button" @click="view = 'welcome'">Пройти вариант</button>
     </section>

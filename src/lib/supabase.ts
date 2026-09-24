@@ -42,6 +42,36 @@ export type LatestSubmittedAttempt = {
   leaderboard_visible: boolean
   leaderboard_visibility_decided_at: string | null
 }
+export type MyAttempt = {
+  attempt_id: string
+  variant_slug: string
+  variant_title: string
+  submitted_at: string
+  primary_score: number
+  secondary_score: number
+  leaderboard_visible: boolean
+}
+export type AttemptDetailRow = {
+  attempt_id: string
+  variant_slug: string
+  variant_title: string
+  submitted_at: string
+  primary_score: number
+  secondary_score: number
+  score_scale: number[]
+  question_position: number
+  kind: string
+  points: number
+  prompt: string
+  options: string[] | null
+  image_path: string | null
+  value: string
+  is_correct: boolean | null
+  correct_answer: string | null
+  solution: string | null
+  awarded_points: number
+  graded: boolean
+}
 export type VariantQuestion = { position: number; kind: 'short' | 'long'; points: number; prompt: string; options: string[] | null; image_path: string | null }
 
 export function questionImageUrl(path: string) {
@@ -183,4 +213,16 @@ export async function getLatestSubmittedAttempt() {
   const { data, error } = await client().rpc('latest_submitted_attempt')
   if (error) throw error
   return (data?.[0] ?? null) as LatestSubmittedAttempt | null
+}
+
+export async function getMyAttempts() {
+  const { data, error } = await client().rpc('my_attempts')
+  if (error) throw error
+  return (data ?? []) as MyAttempt[]
+}
+
+export async function getAttemptDetail(attemptId: string) {
+  const { data, error } = await client().rpc('attempt_detail', { target_attempt: attemptId })
+  if (error) throw error
+  return (data ?? []) as AttemptDetailRow[]
 }

@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { scoreScale, type Question } from '@/data/exam'
-import { ensureAnonymousSession, getActiveAttempt, getAttemptDeadline, getAttemptResults, getVariantQuestions, saveAnswer, startAttempt, submitAttempt, type AttemptReview, type ExamVariant } from '@/lib/supabase'
+import { ensureAnonymousSession, getActiveAttempt, getAttemptDeadline, getAttemptResults, getVariantQuestions, saveAnswer, startAttempt, submitAttempt, type AttemptDetailRow, type AttemptReview, type ExamVariant } from '@/lib/supabase'
 
 const ACTIVE_ATTEMPT_STORAGE_KEY = 'cubege-active-attempt:v1'
 
@@ -146,6 +146,41 @@ export function useExamAttempt() {
   }
   async function submit() { if (isSubmitting.value || !activeAttemptId.value) return false; isSubmitting.value = true; try { if (secondsLeft.value > 0) await persist(); const score = await submitAttempt(activeAttemptId.value); serverScore.value = { primary: score.primary_score, secondary: score.secondary_score }; serverReview.value = Object.fromEntries((await getAttemptResults(activeAttemptId.value)).map((item) => [item.question_position, item])); window.clearInterval(timer); clearStoredAttempt(); return true } catch { authMessage.value = 'Не удалось отправить вариант. Проверьте соединение и попробуйте ещё раз.'; return false } finally { isSubmitting.value = false } }
   function setQuestion(index: number) { currentIndex.value = index; window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  function showSubmittedDetail(rows: AttemptDetailRow[]) {
+    const head = rows[0]
+    if (!head) throw new Error('Attempt has no questions')
+    window.clearInterval(timer)
+    window.clearTimeout(saveTimer)
+    activeAttemptId.value = head.attempt_id
+    activeSlug.value = head.variant_slug
+    activeTitle.value = head.variant_title
+    activeScale.value = head.score_scale?.length ? head.score_scale : scoreScale
+    serverScore.value = { primary: head.primary_score, secondary: head.secondary_score }
+    questions.value = rows.map((row) => ({
+      id: row.question_position,
+      kind: row.kind as 'short' | 'long',
+      points: row.points,
+      prompt: row.prompt,
+      options: row.options ?? undefined,
+      imagePath: row.image_path ?? undefined,
+      autonumber: !row.options?.some((option) => /^[А-ЯЁA-Z0-9]+\)/.test(option)),
+    }))
+    answers.value = Object.fromEntries(rows.map((row) => [row.question_position, row.value]))
+    serverReview.value = Object.fromEntries(rows.map((row) => [row.question_position, {
+      question_position: row.question_position,
+      is_correct: row.is_correct,
+      correct_answer: row.correct_answer,
+      solution: row.solution,
+      awarded_points: row.awarded_points,
+      max_points: row.points,
+      graded: row.graded,
+    }]))
+    currentIndex.value = 0
+    flaggedQuestionIds.value = []
+    secondsLeft.value = 0
+    expiresAt.value = null
+    savedAt.value = ''
+  }
   function toggleQuestionFlag(questionId: number) { flaggedQuestionIds.value = flaggedQuestionIds.value.includes(questionId) ? flaggedQuestionIds.value.filter((id) => id !== questionId) : [...flaggedQuestionIds.value, questionId] }
   function reset() { window.clearInterval(timer); window.clearTimeout(saveTimer); answers.value = {}; flaggedQuestionIds.value = []; currentIndex.value = 0; secondsLeft.value = 0; activeAttemptId.value = null; expiresAt.value = null; serverScore.value = { primary: 0, secondary: 0 }; serverReview.value = {}; clearStoredAttempt() }
 
@@ -158,5 +193,5 @@ export function useExamAttempt() {
     }, 500)
   }, { deep: true })
   onBeforeUnmount(() => { window.clearInterval(timer); window.clearTimeout(saveTimer) })
-  return { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, authMessage, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, activeAttemptId, serverReview, flaggedQuestionIds, isSubmitting, isLoading, start, restoreActiveAttempt, submit, setQuestion, toggleQuestionFlag, reset }
+  return { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, authMessage, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, activeAttemptId, serverReview, flaggedQuestionIds, isSubmitting, isLoading, start, restoreActiveAttempt, submit, setQuestion, showSubmittedDetail, toggleQuestionFlag, reset }
 }
