@@ -2,7 +2,7 @@
 
 > Пробный ЕГЭ по Minecraft: 20 заданий, 120 минут, проверка кратких ответов и разбор результата.
 
-[Открыть сайт](#) · [Сообщить об ошибке](../../issues)
+[Открыть сайт](https://cubege.ruina.team/) · [Сообщить об ошибке](../../issues)
 
 ## Что внутри
 
@@ -22,29 +22,6 @@
 | Авторизация | Anonymous Auth, Twitch OAuth |
 | Deploy | GitHub Pages + GitHub Actions |
 
-## Быстрый старт
-
-```bash
-bun install --ignore-scripts
-copy .env.example .env.local
-bun run dev
-```
-
-Создайте `.env.local`:
-
-```dotenv
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_me
-VITE_BASE_PATH=/
-```
-
-Проверка production-сборки:
-
-```bash
-bun run build
-bun audit
-```
-
 ## Настройка Supabase
 
 1. Создайте проект Supabase и включите **Anonymous Sign-Ins**.
@@ -54,13 +31,12 @@ bun audit
    baseline в текущем live-проекте; правила для него описаны в
    `supabase/migrations/README.md`.
 4. В **Authentication → URL Configuration** укажите production Site URL вашего сайта.
-5. Добавьте Redirect URLs:
-   - `https://<your-domain>/`
-   - `http://localhost:5173/`
+5. Добавьте Redirect URL: `https://<your-domain>/`.
 6. В Twitch Developer Console добавьте callback:
-   `https://<project-ref>.supabase.co/auth/v1/callback`
+    `https://<project-ref>.supabase.co/auth/v1/callback`
 
-`VITE_SUPABASE_PUBLISHABLE_KEY` допустимо передавать клиенту. Никогда не добавляйте service role key в `.env.local`, исходники или GitHub Actions variables.
+`VITE_SUPABASE_PUBLISHABLE_KEY` допустимо передавать клиенту. Service role key
+никогда не должен попадать в исходники, клиентскую сборку или GitHub Actions.
 
 ## Контент вариантов
 
@@ -90,20 +66,4 @@ src/
 ├── data/           # типы вопросов и шкала баллов по умолчанию
 └── lib/            # Supabase-клиент и API
 supabase/migrations/ # схема, RLS и RPC
-```
-
-## Коммиты
-
-Используем [Conventional Commits](https://www.conventionalcommits.org/):
-
-```text
-feat(exam): add answer autosave
-fix(auth): restore Twitch session
-docs: update Supabase setup
-```
-
-Проверка commit message выполняется в GitHub Actions. Перед коммитом можно проверить сообщение вручную:
-
-```bash
-echo "feat(exam): add answer autosave" | bunx commitlint
 ```

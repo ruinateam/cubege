@@ -8,3 +8,6 @@ dist/
 coverage/
 source/
 tasks/
+.playwright-mcp/
+docs/*
+!docs/AGENTS.md
