@@ -21,9 +21,9 @@ onMounted(async () => {
 
 <template>
   <section class="top shell">
-    <p class="eyebrow">Топ игроков</p>
+    <p class="eyebrow">Рейтинг</p>
     <h1>Лучшие результаты</h1>
-    <p class="top-note">В топе — лучшие результаты, которые игроки решили опубликовать. Без одобренного ника показывается зачарованный идентификатор.</p>
+    <p class="top-note">Здесь показаны лучшие опубликованные результаты. Если ник не выбран, используется игровой идентификатор.</p>
     <p v-if="error" class="auth-message" role="alert">{{ error }}</p>
     <p v-else-if="loading" class="admin-empty">Загрузка…</p>
     <p v-else-if="!rows.length" class="admin-empty">Пока пусто — стань первым.</p>
@@ -32,7 +32,6 @@ onMounted(async () => {
         <span class="top-place">{{ index + 1 }}</span>
         <span v-if="row.verified" class="verified-badge" title="Twitch привязан" aria-label="Twitch привязан"><BadgeCheck :size="15" aria-hidden="true" /></span>
         <span class="top-nick" :class="{ 'nickname-generated': row.generated_nickname }">{{ row.nickname }}</span>
-        <span v-if="row.is_current_user" class="top-you">Ты</span>
         <span class="top-meta">{{ row.completed }} {{ row.completed === 1 ? 'попытка' : 'попыток' }}</span>
         <span class="top-score">{{ row.best_secondary }}<small>/100</small></span>
       </li>

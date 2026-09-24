@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { BadgeCheck, Check, ChevronLeft, ChevronRight, CircleAlert, Clock3, EyeOff, Flag, FlagOff, Send, Trophy } from 'lucide-vue-next'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { BadgeCheck, Check, ChevronLeft, ChevronRight, CircleAlert, Clock3, EyeOff, Flag, FlagOff, Send, Trophy, X } from 'lucide-vue-next'
 import { useAuth } from './composables/useAuth'
 import { useExamAttempt } from './composables/useExamAttempt'
 import { useProfile } from './composables/useProfile'
@@ -27,6 +27,13 @@ const openingAttemptId = ref<string | null>(null)
 const resultPublicationStatus = ref<ResultPublicationStatus>('undecided')
 const isUpdatingPublication = ref(false)
 const publicationMessage = ref('')
+const submitDialog = ref<HTMLDialogElement | null>(null)
+const rankTheme = computed(() => {
+  if (secondaryScore.value >= 80) return 'diamond'
+  if (secondaryScore.value >= 60) return 'gold'
+  if (secondaryScore.value >= 40) return 'iron'
+  return 'stone'
+})
 
 onMounted(async () => {
   await loadVariants()
@@ -59,6 +66,18 @@ async function submitExam() {
     return true
   }
   return false
+}
+function requestEarlySubmit() {
+  if (isSubmitting.value || !activeAttemptId.value) return
+  void nextTick(() => {
+    if (submitDialog.value && !submitDialog.value.open) submitDialog.value.showModal()
+    submitDialog.value?.querySelector<HTMLButtonElement>('[data-default]')?.focus()
+  })
+}
+function closeSubmitDialog() { submitDialog.value?.close() }
+async function confirmEarlySubmit() {
+  closeSubmitDialog()
+  await submitExam()
 }
 async function expireExam() {
   if (await submitExam()) return
@@ -115,6 +134,27 @@ function reviewStatus(item: { id: number; kind: string }) {
   if (review.is_correct === false) return 'Неверно'
   return 'Ручная проверка'
 }
+type AnswerMatch = { leftLabel: string; leftText: string; rightLabel: string; rightText: string }
+function answerMatches(item: { options?: string[] }, answer: string | null | undefined): AnswerMatch[] {
+  if (!item.options || !answer) return []
+  const left = item.options.map((option) => option.match(/^\s*([А-ЯЁ])\)\s*(.+)$/i)).filter((match): match is RegExpMatchArray => Boolean(match))
+  const right = item.options.map((option) => option.match(/^\s*(\d+)\)\s*(.+)$/)).filter((match): match is RegExpMatchArray => Boolean(match))
+  const key = answer.replace(/\s/g, '')
+  if (!left.length || !right.length || !/^\d+$/.test(key) || key.length !== left.length) return []
+  const matches = left.map((option, index) => {
+    const selected = right.find((candidate) => candidate[1] === key[index])
+    return selected && { leftLabel: option[1], leftText: option[2], rightLabel: selected[1], rightText: selected[2] }
+  })
+  return matches.every((match): match is AnswerMatch => Boolean(match)) ? matches : []
+}
+function isSelectedOption(questionId: number, optionIndex: number) {
+  const answer = answers.value[questionId]?.replace(/\s/g, '') ?? ''
+  return /^\d+$/.test(answer) && answer.includes(String(optionIndex + 1))
+}
+function isCorrectOption(questionId: number, optionIndex: number) {
+  const answer = serverReview.value[questionId]?.correct_answer?.replace(/\s/g, '') ?? ''
+  return /^\d+$/.test(answer) && answer.includes(String(optionIndex + 1))
+}
 function plural(value: number, one: string, few: string, many: string) {
   const m10 = Math.abs(value) % 10
   const m100 = Math.abs(value) % 100
@@ -134,14 +174,21 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
 
   <main id="content">
     <section v-if="view === 'welcome'" class="welcome shell">
-      <div class="eyebrow"><span class="cube" aria-hidden="true"></span> Пробный вариант · 2026</div>
-      <h1>ЕГЭ по <span>кубам</span></h1>
-      <p class="lede">Проверь, насколько хорошо ты знаешь Minecraft: {{ selectedVariant?.question_count ?? '—' }} заданий, {{ selectedVariant ? Math.round(selectedVariant.duration_seconds / 60) : '—' }} минут и подробный разбор после сдачи.</p>
-      <div v-if="variants.length > 1" class="variant-picker" role="radiogroup" aria-label="Выбор варианта"><button v-for="item in variants" :key="item.slug" type="button" role="radio" :aria-checked="item.slug === selectedSlug" :class="{ active: item.slug === selectedSlug }" @click="selectedSlug = item.slug">{{ item.title }}</button></div>
-      <div class="welcome-actions"><button class="button button-primary" type="button" :disabled="isLoading || isLoadingVariants || !selectedVariant" @click="startExam">{{ isLoading ? 'Загрузка…' : 'Начать вариант' }} <ChevronRight v-if="!isLoading" :size="18" aria-hidden="true" /></button><button class="button button-outline" type="button" @click="openTop"><Trophy :size="17" aria-hidden="true" /> Топ</button><span>Результат сохранится. После сдачи ты сам решишь, публиковать ли его в топе.</span></div>
-      <p v-if="authMessage || variantsError" class="auth-message" role="status">{{ authMessage || variantsError }}</p>
-      <dl class="stats"><div><dt>{{ selectedVariant?.question_count ?? '—' }}</dt><dd>заданий</dd></div><div><dt>{{ selectedVariant ? Math.round(selectedVariant.duration_seconds / 60) : '—' }}</dt><dd>минут</dd></div><div><dt>{{ selectedVariant?.max_primary ?? '—' }}</dt><dd>первичных баллов</dd></div></dl>
-      <div class="exam-note"><span class="note-icon" aria-hidden="true">!</span><p><strong>Без спойлеров.</strong> Ключи и эталонные решения появятся только после отправки варианта.</p></div>
+      <div class="welcome-main">
+        <p class="welcome-kicker">Открытый вариант · 2026</p>
+        <h1>Экзамен по <span>Minecraft</span></h1>
+        <p class="lede">{{ selectedVariant?.question_count ?? '—' }} заданий о механиках игры. {{ selectedVariant ? Math.round(selectedVariant.duration_seconds / 60) : '—' }} минут на прохождение. Разбор откроется после сдачи.</p>
+        <div v-if="variants.length > 1" class="variant-picker" role="radiogroup" aria-label="Выбор варианта"><button v-for="item in variants" :key="item.slug" type="button" role="radio" :aria-checked="item.slug === selectedSlug" :class="{ active: item.slug === selectedSlug }" @click="selectedSlug = item.slug">{{ item.title }}</button></div>
+        <div class="welcome-actions"><button class="button button-primary" type="button" :disabled="isLoading || isLoadingVariants || !selectedVariant" @click="startExam">{{ isLoading ? 'Загрузка…' : 'Начать вариант' }} <ChevronRight v-if="!isLoading" :size="18" aria-hidden="true" /></button><button class="button button-ghost" type="button" @click="openTop"><Trophy :size="17" aria-hidden="true" /> Рейтинг</button></div>
+        <p class="welcome-note">Результат сохранится в профиле. Публикацию в рейтинге можно выбрать после сдачи.</p>
+        <p v-if="authMessage || variantsError" class="auth-message" role="status">{{ authMessage || variantsError }}</p>
+      </div>
+      <aside class="variant-overview" aria-label="Параметры варианта">
+        <p>Вариант</p>
+        <strong>{{ selectedVariant?.title || '—' }}</strong>
+        <div class="variant-grid" aria-hidden="true"><i v-for="number in selectedVariant?.question_count ?? 20" :key="number"></i></div>
+        <dl class="stats"><div><dt>{{ selectedVariant?.question_count ?? '—' }}</dt><dd>заданий</dd></div><div><dt>{{ selectedVariant ? Math.round(selectedVariant.duration_seconds / 60) : '—' }}</dt><dd>минут</dd></div><div><dt>{{ selectedVariant?.max_primary ?? '—' }}</dt><dd>первичных баллов</dd></div></dl>
+      </aside>
     </section>
 
     <section v-else-if="view === 'exam'" class="exam-layout shell">
@@ -164,12 +211,13 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
           <textarea v-else :id="`answer-${question.id}`" v-model="answers[question.id]" placeholder="Опишите ход решения и ответ" rows="8"></textarea>
           <p>{{ question.kind === 'short' ? 'Без пробелов и знаков препинания, если это не указано в задании.' : 'Развёрнутые ответы будут сохранены. Сверить их с эталоном можно после сдачи.' }}</p>
         </div>
-        <div class="question-actions"><button class="button button-ghost" type="button" :aria-pressed="flaggedQuestionIds.includes(question.id)" @click="toggleQuestionFlag(question.id)"><FlagOff v-if="flaggedQuestionIds.includes(question.id)" :size="17" aria-hidden="true" /><Flag v-else :size="17" aria-hidden="true" /> {{ flaggedQuestionIds.includes(question.id) ? 'Убрать отметку' : 'Вернуться позже' }}</button><button class="button button-ghost" type="button" :disabled="currentIndex === 0" @click="previous"><ChevronLeft :size="18" aria-hidden="true" /> Назад</button><button v-if="currentIndex < questions.length - 1" class="button button-primary" type="button" @click="next">Дальше <ChevronRight :size="18" aria-hidden="true" /></button><button v-else class="button button-primary" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam"><Send :size="17" aria-hidden="true" /> Сдать вариант</button></div>
+         <div class="question-actions"><button class="button button-ghost" type="button" :aria-pressed="flaggedQuestionIds.includes(question.id)" @click="toggleQuestionFlag(question.id)"><FlagOff v-if="flaggedQuestionIds.includes(question.id)" :size="17" aria-hidden="true" /><Flag v-else :size="17" aria-hidden="true" /> {{ flaggedQuestionIds.includes(question.id) ? 'Убрать отметку' : 'Вернуться позже' }}</button><button class="button button-ghost" type="button" :disabled="currentIndex === 0" @click="previous"><ChevronLeft :size="18" aria-hidden="true" /> Назад</button><button v-if="currentIndex < questions.length - 1" class="button button-primary" type="button" @click="next">Дальше <ChevronRight :size="18" aria-hidden="true" /></button><button v-else class="button button-primary" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="requestEarlySubmit"><Send :size="17" aria-hidden="true" /> Сдать вариант досрочно</button></div>
       </article>
-      <aside class="exam-side"><div class="progress-card"><span>Заполнено</span><strong>{{ answeredCount }}<small>/{{ questions.length }}</small></strong><div class="progress"><i :style="{ width: `${questions.length ? answeredCount / questions.length * 100 : 0}%` }"></i></div><p v-if="flaggedQuestionIds.length" class="flagged-count"><Flag :size="14" aria-hidden="true" /> Отмечено: {{ flaggedQuestionIds.length }}</p></div><button class="button button-outline" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam">Сдать вариант</button></aside>
+       <aside class="exam-side"><div class="progress-card"><span>Заполнено</span><strong>{{ answeredCount }}<small>/{{ questions.length }}</small></strong><div class="progress"><i :style="{ width: `${questions.length ? answeredCount / questions.length * 100 : 0}%` }"></i></div><p v-if="flaggedQuestionIds.length" class="flagged-count"><Flag :size="14" aria-hidden="true" /> Отмечено: {{ flaggedQuestionIds.length }}</p></div><button class="button button-outline" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="requestEarlySubmit">Сдать вариант досрочно</button></aside>
     </section>
 
     <section v-else-if="view === 'profile'" class="profile shell">
+      <div class="profile-overview">
       <div class="profile-heading"><div class="profile-avatar"><img v-if="authUser?.avatarUrl" :src="authUser.avatarUrl" alt="" /><span v-else>{{ authUser?.label.slice(0, 1) }}</span></div><div><p class="eyebrow">{{ authUser && !authUser.isAnonymous ? 'Профиль Twitch' : 'Профиль гостя' }}</p><h1>{{ authUser?.label }}</h1><p v-if="authUser?.login">@{{ authUser.login }}</p></div></div>
       <section class="nickname-block" aria-label="Статус в топе">
         <p v-if="profileLoadError" class="auth-message" role="status">Не удалось проверить статус публикации. Открой профиль позже.</p>
@@ -200,10 +248,12 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
             <p class="nickname-hint">3–16 латинских букв, цифр или _.</p>
           </template>
           <p v-if="nicknameMessage" class="nickname-status" role="status">{{ nicknameMessage }}</p>
-        </template>
+       </template>
       </section>
-       <div class="profile-stats"><div><span>Пройдено вариантов</span><strong>{{ userStatistics?.completed_attempts ?? '—' }}</strong></div><div><span>Лучший результат</span><strong>{{ userStatistics?.best_secondary_score ?? '—' }}<small v-if="userStatistics?.best_secondary_score">/100</small></strong></div><div><span>Средний результат</span><strong>{{ userStatistics?.average_secondary_score ?? '—' }}<small v-if="userStatistics?.average_secondary_score">/100</small></strong></div></div>
-      <section class="latest-attempt-publication" aria-labelledby="latest-attempt-heading">
+      </div>
+       <div class="profile-stats"><div class="profile-stat-primary"><span>Пройдено вариантов</span><strong>{{ userStatistics?.completed_attempts ?? '—' }}</strong></div><div class="profile-stat-scores"><div><span>Лучший результат</span><strong>{{ userStatistics?.best_secondary_score ?? '—' }}<small v-if="userStatistics?.best_secondary_score">/100</small></strong></div><div><span>Средний результат</span><strong>{{ userStatistics?.average_secondary_score ?? '—' }}<small v-if="userStatistics?.average_secondary_score">/100</small></strong></div></div></div>
+       <div class="profile-sections">
+       <section class="latest-attempt-publication" aria-labelledby="latest-attempt-heading">
         <p class="eyebrow">Публикация</p>
         <h2 id="latest-attempt-heading">Последняя сданная попытка</h2>
         <template v-if="latestAttempt">
@@ -216,7 +266,7 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
         <p v-else>Сданных вариантов пока нет.</p>
         <p v-if="latestAttemptMessage" class="auth-message" role="status">{{ latestAttemptMessage }}</p>
       </section>
-      <section class="latest-attempt-publication" aria-labelledby="history-heading">
+       <section class="latest-attempt-publication" aria-labelledby="history-heading">
         <p class="eyebrow">История</p>
         <h2 id="history-heading">Мои результаты</h2>
         <p v-if="isLoadingHistory" class="admin-empty">Загрузка…</p>
@@ -227,20 +277,29 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
             <button class="button button-outline" type="button" :disabled="openingAttemptId === attempt.attempt_id" @click="openHistoryAttempt(attempt)">{{ openingAttemptId === attempt.attempt_id ? 'Открываю…' : 'Разбор' }}</button>
           </div>
         </div>
-        <p v-if="historyError" class="auth-message" role="alert">{{ historyError }}</p>
-      </section>
-      <button class="button button-primary" type="button" @click="view = 'welcome'">Пройти вариант</button>
+         <p v-if="historyError" class="auth-message" role="alert">{{ historyError }}</p>
+       </section>
+       </div>
+       <button class="button button-primary" type="button" @click="view = 'welcome'">Пройти вариант</button>
     </section>
     <AdminPanel v-else-if="view === 'admin' && authUser?.isAdmin" />
     <TopPanel v-else-if="view === 'top'" />
     <section v-else class="result shell">
-      <div class="result-hero"><div class="result-icon"><Trophy :size="28" aria-hidden="true" /></div><p class="eyebrow">{{ activeTitle || 'Вариант сдан' }}</p><h1>{{ secondaryScore }} <span>{{ plural(secondaryScore, 'балл', 'балла', 'баллов') }}</span></h1><p>Твоё звание — <strong>{{ rank }}</strong>. Краткие ответы проверены автоматически; развёрнутые можно сравнить с эталоном после ручной проверки.</p><button class="button button-outline" type="button" @click="reset">Пройти ещё раз</button></div>
+      <div class="result-hero" :class="`rank-theme--${rankTheme}`"><div><p class="result-title">{{ activeTitle || 'Результат варианта' }}</p><div class="result-score"><strong>{{ secondaryScore }}</strong><span>/100</span></div><div class="result-rank"><span>Звание</span><strong>{{ rank }}</strong></div><div class="result-progress" role="progressbar" aria-label="Результат" aria-valuemin="0" aria-valuemax="100" :aria-valuenow="secondaryScore"><i :style="{ width: `${secondaryScore}%` }"></i></div></div><button class="button button-outline" type="button" @click="reset">Пройти ещё раз</button></div>
       <div class="score-cards"><div><span>Первичный балл</span><strong>{{ primaryScore }}<small>/{{ maxPrimary }}</small></strong></div><div><span>Вторичный балл</span><strong>{{ secondaryScore }}<small>/100</small></strong></div><div><span>Краткие ответы</span><strong>{{ shortPoints }}<small>/{{ shortCount }}</small></strong></div></div>
-       <LeaderboardStatusCard v-if="isProfileLoaded && !profileLoadError" :nickname-status="leaderboardStatus" :nickname="profile?.nickname" :publication-status="resultPublicationStatus" :is-saving="isUpdatingPublication" @publish="setResultPublication(true)" @keep-private="setResultPublication(false)" @withdraw="setResultPublication(false)" @open-top="openTop" />
-       <p v-if="publicationMessage" class="auth-message" role="status">{{ publicationMessage }}</p>
-      <section v-else-if="profileLoadError" class="leaderboard-status-card leaderboard-status--unavailable" role="status"><CircleAlert :size="22" aria-hidden="true" /><div><p class="eyebrow">Статус в топе</p><h2>Не удалось проверить статус публикации</h2><p>Результат сохранён. Попробуй открыть профиль позже.</p><button class="button button-outline" type="button" @click="openProfile">Открыть профиль</button></div></section>
-      <p v-else class="leaderboard-status-loading" role="status">Проверяем статус публикации результата…</p>
-      <section class="review"><div class="section-heading"><div><p class="eyebrow">Разбор</p><h2>Твои ответы</h2></div><span>{{ answeredCount }} из {{ questions.length }} заполнено</span></div><article v-for="item in questions" :key="item.id" class="review-item" :class="{ correct: serverReview[item.id]?.is_correct === true, missed: serverReview[item.id]?.is_correct === false }"><div class="review-number">{{ item.id }}</div><div><h3>{{ item.prompt }}</h3><p>Твой ответ: <strong>{{ answers[item.id] || 'нет ответа' }}</strong><template v-if="serverReview[item.id]?.correct_answer"> · Верный ответ: <strong>{{ serverReview[item.id].correct_answer }}</strong></template></p><details v-if="serverReview[item.id]?.solution"><summary>Показать эталонное решение</summary><p>{{ serverReview[item.id].solution }}</p></details></div><span class="status">{{ reviewStatus(item) }}</span></article></section>
+        <LeaderboardStatusCard v-if="isProfileLoaded && !profileLoadError" :nickname-status="leaderboardStatus" :nickname="profile?.nickname" :publication-status="resultPublicationStatus" :is-saving="isUpdatingPublication" @publish="setResultPublication(true)" @keep-private="setResultPublication(false)" @withdraw="setResultPublication(false)" @open-top="openTop" />
+       <section v-else-if="profileLoadError" class="leaderboard-status-card leaderboard-status--unavailable" role="status"><CircleAlert :size="22" aria-hidden="true" /><div><p class="eyebrow">Статус в топе</p><h2>Не удалось проверить статус публикации</h2><p>Результат сохранён. Попробуй открыть профиль позже.</p><button class="button button-outline" type="button" @click="openProfile">Открыть профиль</button></div></section>
+       <p v-else class="leaderboard-status-loading" role="status">Проверяем статус публикации результата…</p>
+        <p v-if="publicationMessage" class="auth-message" role="status">{{ publicationMessage }}</p>
+      <section class="review"><div class="section-heading"><div><p class="eyebrow">Разбор</p><h2>Твои ответы</h2></div><span>{{ answeredCount }} из {{ questions.length }} заполнено</span></div><article v-for="item in questions" :key="item.id" class="review-item" :class="{ correct: serverReview[item.id]?.is_correct === true, missed: serverReview[item.id]?.is_correct === false }"><div class="review-number">{{ item.id }}</div><div><h3>{{ item.prompt }}</h3><ol v-if="item.options && item.autonumber" class="review-options" aria-label="Варианты ответа"><li v-for="(option, index) in item.options" :key="option" :class="{ selected: isSelectedOption(item.id, index), correct: isCorrectOption(item.id, index), skipped: isCorrectOption(item.id, index) && !isSelectedOption(item.id, index), extra: isSelectedOption(item.id, index) && !isCorrectOption(item.id, index) }"><span>{{ option }}</span><small v-if="isCorrectOption(item.id, index) && isSelectedOption(item.id, index)">Выбрано верно</small><small v-else-if="isCorrectOption(item.id, index)">Пропущен</small><small v-else-if="isSelectedOption(item.id, index)">Лишний выбор</small></li></ol><div class="review-answers"><p>{{ answerMatches(item, answers[item.id]).length ? 'Твой ключ:' : 'Твой ответ:' }} <strong :class="{ 'answer-key--correct': serverReview[item.id]?.is_correct === true, 'answer-key--incorrect': answers[item.id] && serverReview[item.id]?.is_correct === false }">{{ answers[item.id] || 'нет ответа' }}</strong></p><dl v-if="answerMatches(item, answers[item.id]).length" class="answer-decoding" aria-label="Расшифровка твоего ответа"><template v-for="match in answerMatches(item, answers[item.id])" :key="match.leftLabel"><dt><strong>{{ match.leftLabel }}</strong> — {{ match.leftText }}</dt><dd><strong>{{ match.rightLabel }}</strong> — {{ match.rightText }}</dd></template></dl><template v-if="serverReview[item.id]?.correct_answer"><p>{{ answerMatches(item, serverReview[item.id].correct_answer).length ? 'Верный ключ:' : 'Верный ответ:' }} <strong class="answer-key--correct">{{ serverReview[item.id].correct_answer }}</strong></p><dl v-if="answerMatches(item, serverReview[item.id].correct_answer).length" class="answer-decoding answer-decoding--correct" aria-label="Расшифровка верного ответа"><template v-for="match in answerMatches(item, serverReview[item.id].correct_answer)" :key="match.leftLabel"><dt><strong>{{ match.leftLabel }}</strong> — {{ match.leftText }}</dt><dd><strong>{{ match.rightLabel }}</strong> — {{ match.rightText }}</dd></template></dl></template></div><details v-if="serverReview[item.id]?.solution"><summary>Показать эталонное решение</summary><p>{{ serverReview[item.id].solution }}</p></details></div><span v-if="serverReview[item.id]?.is_correct === true" class="status status--mark status--correct" role="img" aria-label="Верно"><Check :size="18" aria-hidden="true" /></span><span v-else-if="serverReview[item.id]?.is_correct === false" class="status status--mark status--missed" role="img" aria-label="Неверно"><X :size="18" aria-hidden="true" /></span><span v-else class="status">{{ reviewStatus(item) }}</span></article></section>
     </section>
   </main>
+  <dialog ref="submitDialog" class="submit-dialog" aria-labelledby="submit-dialog-title">
+    <form method="dialog" @submit.prevent="confirmEarlySubmit">
+      <p class="submit-dialog-kicker">До конца: {{ formattedTime }}</p>
+      <h2 id="submit-dialog-title">Сдать вариант досрочно?</h2>
+      <p>После отправки изменить ответы уже нельзя.</p>
+      <div class="submit-dialog-actions"><button class="button button-outline" type="submit">Да, сдать</button><button class="button button-primary" type="button" data-default @click="closeSubmitDialog">Нет, продолжить</button></div>
+    </form>
+  </dialog>
 </template>
