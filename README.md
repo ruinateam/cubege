@@ -49,7 +49,10 @@ bun audit
 
 1. Создайте проект Supabase и включите **Anonymous Sign-Ins**.
 2. Включите **Twitch** в Authentication → Providers, добавив Client ID и Client Secret из Twitch Developer Console.
-3. Выполните миграции из `supabase/migrations/`.
+3. Для пустого проекта примените
+   `supabase/migrations/20260924000000_schema_baseline.sql`. Не запускайте
+   baseline в текущем live-проекте; правила для него описаны в
+   `supabase/migrations/README.md`.
 4. В **Authentication → URL Configuration** укажите production Site URL вашего сайта.
 5. Добавьте Redirect URLs:
    - `https://<your-domain>/`

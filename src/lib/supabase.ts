@@ -34,6 +34,13 @@ export type UserProfile = { nickname: string | null; nickname_status: NicknameSt
 export type PendingNickname = { user_id: string; user_email: string | null; nickname: string; created_at: string }
 export type LeaderboardRow = { nickname: string; generated_nickname: boolean; verified: boolean; is_current_user: boolean; best_secondary: number; completed: number; latest: string }
 export type UserStatistics = { completed_attempts: number; best_secondary_score: number | null; average_secondary_score: number | null; latest_submitted_at: string | null }
+export type LatestSubmittedAttempt = {
+  attempt_id: string
+  submitted_at: string
+  secondary_score: number
+  leaderboard_visible: boolean
+  leaderboard_visibility_decided_at: string | null
+}
 export type VariantQuestion = { position: number; kind: 'short' | 'long'; points: number; prompt: string; options: string[] | null; image_path: string | null }
 
 export function questionImageUrl(path: string) {
@@ -55,6 +62,12 @@ export async function getVariants(): Promise<ExamVariant[]> {
 
 export async function startAttempt(slug: string) {
   const { data, error } = await client().rpc('start_attempt', { target_slug: slug })
+  if (error) throw error
+  return data as string
+}
+
+export async function getAttemptDeadline(attemptId: string) {
+  const { data, error } = await client().rpc('attempt_deadline', { target_attempt: attemptId })
   if (error) throw error
   return data as string
 }
@@ -148,4 +161,19 @@ export async function getLeaderboard(limit = 20) {
   const { data, error } = await client().rpc('leaderboard', { limit_n: limit })
   if (error) throw error
   return data as LeaderboardRow[]
+}
+
+export async function setAttemptLeaderboardVisibility(attemptId: string, visible: boolean) {
+  const { data, error } = await client().rpc('set_attempt_leaderboard_visibility', {
+    target_attempt: attemptId,
+    visible,
+  })
+  if (error) throw error
+  return data as boolean
+}
+
+export async function getLatestSubmittedAttempt() {
+  const { data, error } = await client().rpc('latest_submitted_attempt')
+  if (error) throw error
+  return (data?.[0] ?? null) as LatestSubmittedAttempt | null
 }

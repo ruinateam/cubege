@@ -1,10 +1,12 @@
 export type NicknameStatus = 'pending' | 'approved' | 'rejected'
 
 export type LeaderboardVisibilityStatus =
-  | 'visible_anonymous'
+  | 'no_nickname'
   | 'pending'
   | 'visible'
   | 'rejected'
+
+export type ResultPublicationStatus = 'undecided' | 'private' | 'published'
 
 export type LeaderboardProfile = {
   nickname: string | null

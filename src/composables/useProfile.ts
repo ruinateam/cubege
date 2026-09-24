@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { getMyProfile, getUserStatistics, requestNickname, syncTwitchNickname, type UserProfile, type UserStatistics } from '@/lib/supabase'
+import { getLatestSubmittedAttempt, getMyProfile, getUserStatistics, requestNickname, setAttemptLeaderboardVisibility, syncTwitchNickname, type LatestSubmittedAttempt, type UserProfile, type UserStatistics } from '@/lib/supabase'
 import { useLeaderboardVisibility } from '@/composables/useLeaderboardVisibility'
 
 export function useProfile() {
@@ -10,6 +10,9 @@ export function useProfile() {
   const isRequestingNickname = ref(false)
   const isProfileLoaded = ref(false)
   const profileLoadError = ref(false)
+  const latestAttempt = ref<LatestSubmittedAttempt | null>(null)
+  const latestAttemptMessage = ref('')
+  const isUpdatingLatestAttempt = ref(false)
   const leaderboardStatus = useLeaderboardVisibility(profile)
 
   async function loadStatistics() { try { userStatistics.value = await getUserStatistics() } catch { userStatistics.value = null } }
@@ -28,6 +31,27 @@ export function useProfile() {
       isProfileLoaded.value = true
     }
   }
+  async function loadLatestAttempt() {
+    latestAttemptMessage.value = ''
+    try { latestAttempt.value = await getLatestSubmittedAttempt() }
+    catch {
+      latestAttempt.value = null
+      latestAttemptMessage.value = 'Не удалось загрузить последнюю попытку. Попробуй открыть профиль позже.'
+    }
+  }
+  async function setLatestAttemptVisibility(visible: boolean) {
+    if (!latestAttempt.value || isUpdatingLatestAttempt.value) return
+    isUpdatingLatestAttempt.value = true
+    latestAttemptMessage.value = ''
+    try {
+      await setAttemptLeaderboardVisibility(latestAttempt.value.attempt_id, visible)
+      await loadLatestAttempt()
+    } catch {
+      latestAttemptMessage.value = 'Не удалось изменить публикацию. Проверь соединение и попробуй ещё раз.'
+    } finally {
+      isUpdatingLatestAttempt.value = false
+    }
+  }
   async function submitNickname() {
     const value = nicknameDraft.value.trim()
     if (!/^[A-Za-z0-9_]{3,16}$/.test(value)) {
@@ -39,7 +63,7 @@ export function useProfile() {
     try {
       const status = await requestNickname(value)
       await loadProfile()
-      nicknameMessage.value = status === 'approved' ? 'Ник принят. Результат участвует в топе.' : 'Ник отправлен на проверку.'
+      nicknameMessage.value = status === 'approved' ? 'Ник принят. Он появится в результате, если ты решишь опубликовать его в топе.' : 'Ник отправлен на проверку.'
     } catch {
       nicknameMessage.value = 'Не удалось отправить ник. Возможно, он уже занят.'
     } finally {
@@ -52,6 +76,9 @@ export function useProfile() {
     nicknameMessage.value = ''
     profileLoadError.value = false
     isProfileLoaded.value = false
+    latestAttempt.value = null
+    latestAttemptMessage.value = ''
+    isUpdatingLatestAttempt.value = false
   }
-  return { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, isProfileLoaded, profileLoadError, leaderboardStatus, loadProfile, submitNickname, clearProfile }
+  return { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, isProfileLoaded, profileLoadError, leaderboardStatus, latestAttempt, latestAttemptMessage, isUpdatingLatestAttempt, loadProfile, loadLatestAttempt, setLatestAttemptVisibility, submitNickname, clearProfile }
 }

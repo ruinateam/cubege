@@ -23,7 +23,7 @@ onMounted(async () => {
   <section class="top shell">
     <p class="eyebrow">Топ игроков</p>
     <h1>Лучшие результаты</h1>
-    <p class="top-note">В топе — лучший результат каждого игрока. Без ника показывается зачарованный идентификатор.</p>
+    <p class="top-note">В топе — лучшие результаты, которые игроки решили опубликовать. Без одобренного ника показывается зачарованный идентификатор.</p>
     <p v-if="error" class="auth-message" role="alert">{{ error }}</p>
     <p v-else-if="loading" class="admin-empty">Загрузка…</p>
     <p v-else-if="!rows.length" class="admin-empty">Пока пусто — стань первым.</p>
