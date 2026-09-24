@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { BadgeCheck, Check, ChevronLeft, ChevronRight, CircleAlert, Clock3, EyeOff, Send, Trophy } from 'lucide-vue-next'
+import { BadgeCheck, Check, ChevronLeft, ChevronRight, CircleAlert, Clock3, EyeOff, Flag, FlagOff, Send, Trophy } from 'lucide-vue-next'
 import { useAuth } from './composables/useAuth'
 import { useExamAttempt } from './composables/useExamAttempt'
 import { useProfile } from './composables/useProfile'
@@ -18,13 +18,16 @@ const accountMenuOpen = ref(false)
 const { authUser, authMessage, connectTwitch, signOut: endSession } = useAuth()
 const { userStatistics, loadStatistics, profile, nicknameDraft, nicknameMessage, isRequestingNickname, isProfileLoaded, profileLoadError, leaderboardStatus, latestAttempt, latestAttemptMessage, isUpdatingLatestAttempt, loadProfile, loadLatestAttempt, setLatestAttemptVisibility, submitNickname, clearProfile } = useProfile()
 const { variants, selectedSlug, selectedVariant, variantsError, isLoadingVariants, loadVariants } = useVariants()
-const { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, activeAttemptId, serverReview, isSubmitting, isLoading, start, submit, setQuestion, reset: resetAttempt } = useExamAttempt()
+const { questions, question, currentIndex, answers, secondsLeft, formattedTime, savedAt, answeredCount, maxPrimary, shortCount, primaryScore, secondaryScore, rank, activeTitle, activeAttemptId, serverReview, flaggedQuestionIds, isSubmitting, isLoading, start, restoreActiveAttempt, submit, setQuestion, toggleQuestionFlag, reset: resetAttempt } = useExamAttempt()
 const shortPoints = primaryScore
 const resultPublicationStatus = ref<ResultPublicationStatus>('undecided')
 const isUpdatingPublication = ref(false)
 const publicationMessage = ref('')
 
-onMounted(loadVariants)
+onMounted(async () => {
+  await loadVariants()
+  if (await restoreActiveAttempt(() => void expireExam())) view.value = 'exam'
+})
 watch(authUser, (user) => {
   if (user) void loadProfile()
   else clearProfile()
@@ -39,7 +42,7 @@ const profileStatusIcon = computed(() => ({
 
 async function startExam() {
   if (!selectedVariant.value) { authMessage.value = 'Нет доступных вариантов. Попробуйте позже.'; return }
-  try { await start(selectedVariant.value, () => void submitExam()); view.value = 'exam' }
+  try { await start(selectedVariant.value, () => void expireExam()); view.value = 'exam' }
   catch { authMessage.value = 'Не удалось начать вариант. Обновите страницу и попробуйте ещё раз.' }
 }
 async function submitExam() {
@@ -49,7 +52,15 @@ async function submitExam() {
     view.value = 'result'
     window.scrollTo({ top: 0, behavior: 'smooth' })
     void loadProfile()
+    return true
   }
+  return false
+}
+async function expireExam() {
+  if (await submitExam()) return
+  resetAttempt()
+  authMessage.value = 'Время на вариант истекло. Несохранённые ответы не вошли в результат.'
+  view.value = 'welcome'
 }
 async function setResultPublication(visible: boolean) {
   if (!activeAttemptId.value || isUpdatingPublication.value) return
@@ -94,7 +105,7 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
 
 <template>
   <a class="skip-link" href="#content">К заданиям</a>
-  <AppHeader :view="view" :formatted-time="formattedTime" :is-urgent="secondsLeft < 600" :user="authUser" :menu-open="accountMenuOpen" @home="view = 'welcome'" @connect="connectTwitch" @toggle-menu="accountMenuOpen = !accountMenuOpen" @profile="openProfile" @admin="openAdmin" @top="openTop" @sign-out="signOut" />
+  <AppHeader :view="view" :formatted-time="formattedTime" :timer-state="secondsLeft <= 300 ? 'critical' : secondsLeft <= 600 ? 'warning' : 'normal'" :user="authUser" :menu-open="accountMenuOpen" @home="view = 'welcome'" @connect="connectTwitch" @toggle-menu="accountMenuOpen = !accountMenuOpen" @profile="openProfile" @admin="openAdmin" @top="openTop" @sign-out="signOut" />
 
   <main id="content">
     <section v-if="view === 'welcome'" class="welcome shell">
@@ -112,7 +123,7 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
       <aside class="question-nav" aria-label="Навигация по заданиям">
         <div class="nav-head"><span>Задания</span><span>{{ answeredCount }}/{{ questions.length }}</span></div>
         <div class="number-grid">
-          <button v-for="(item, index) in questions" :key="item.id" class="number-button" :class="{ active: index === currentIndex, done: answers[item.id]?.trim(), long: item.kind === 'long' }" type="button" :aria-label="`Задание ${item.id}`" :aria-current="index === currentIndex ? 'step' : undefined" @click="setQuestion(index)">{{ item.id }}</button>
+          <button v-for="(item, index) in questions" :key="item.id" class="number-button" :class="{ active: index === currentIndex, done: answers[item.id]?.trim(), flagged: flaggedQuestionIds.includes(item.id), long: item.kind === 'long' }" type="button" :aria-label="`Задание ${item.id}: ${answers[item.id]?.trim() ? 'есть ответ' : 'без ответа'}${flaggedQuestionIds.includes(item.id) ? ', отмечено для возврата' : ''}`" :aria-current="index === currentIndex ? 'step' : undefined" @click="setQuestion(index)">{{ item.id }}<span v-if="flaggedQuestionIds.includes(item.id)" aria-hidden="true">•</span></button>
         </div>
         <p v-if="savedAt" class="saved"><Check :size="14" aria-hidden="true" /> Сохранено {{ savedAt }}</p>
       </aside>
@@ -128,9 +139,9 @@ async function signOut() { await endSession(); accountMenuOpen.value = false; vi
           <textarea v-else :id="`answer-${question.id}`" v-model="answers[question.id]" placeholder="Опишите ход решения и ответ" rows="8"></textarea>
           <p>{{ question.kind === 'short' ? 'Без пробелов и знаков препинания, если это не указано в задании.' : 'Развёрнутые ответы будут сохранены. Сверить их с эталоном можно после сдачи.' }}</p>
         </div>
-        <div class="question-actions"><button class="button button-ghost" type="button" :disabled="currentIndex === 0" @click="previous"><ChevronLeft :size="18" aria-hidden="true" /> Назад</button><button v-if="currentIndex < questions.length - 1" class="button button-primary" type="button" @click="next">Дальше <ChevronRight :size="18" aria-hidden="true" /></button><button v-else class="button button-primary" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam"><Send :size="17" aria-hidden="true" /> Сдать вариант</button></div>
+        <div class="question-actions"><button class="button button-ghost" type="button" :aria-pressed="flaggedQuestionIds.includes(question.id)" @click="toggleQuestionFlag(question.id)"><FlagOff v-if="flaggedQuestionIds.includes(question.id)" :size="17" aria-hidden="true" /><Flag v-else :size="17" aria-hidden="true" /> {{ flaggedQuestionIds.includes(question.id) ? 'Убрать отметку' : 'Вернуться позже' }}</button><button class="button button-ghost" type="button" :disabled="currentIndex === 0" @click="previous"><ChevronLeft :size="18" aria-hidden="true" /> Назад</button><button v-if="currentIndex < questions.length - 1" class="button button-primary" type="button" @click="next">Дальше <ChevronRight :size="18" aria-hidden="true" /></button><button v-else class="button button-primary" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam"><Send :size="17" aria-hidden="true" /> Сдать вариант</button></div>
       </article>
-      <aside class="exam-side"><div class="progress-card"><span>Заполнено</span><strong>{{ answeredCount }}<small>/{{ questions.length }}</small></strong><div class="progress"><i :style="{ width: `${questions.length ? answeredCount / questions.length * 100 : 0}%` }"></i></div></div><button class="button button-outline" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam">Сдать вариант</button></aside>
+      <aside class="exam-side"><div class="progress-card"><span>Заполнено</span><strong>{{ answeredCount }}<small>/{{ questions.length }}</small></strong><div class="progress"><i :style="{ width: `${questions.length ? answeredCount / questions.length * 100 : 0}%` }"></i></div><p v-if="flaggedQuestionIds.length" class="flagged-count"><Flag :size="14" aria-hidden="true" /> Отмечено: {{ flaggedQuestionIds.length }}</p></div><button class="button button-outline" type="button" :disabled="answeredCount === 0" :title="answeredCount === 0 ? 'Ответьте хотя бы на один вопрос' : undefined" @click="submitExam">Сдать вариант</button></aside>
     </section>
 
     <section v-else-if="view === 'profile'" class="profile shell">

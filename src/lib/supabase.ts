@@ -27,6 +27,7 @@ export async function signInWithTwitch() {
 
 export type AttemptScore = { primary_score: number; secondary_score: number }
 export type AttemptReview = { question_position: number; is_correct: boolean | null; correct_answer: string | null; solution: string | null; awarded_points: number; max_points: number; graded: boolean }
+export type ActiveAttempt = { attempt_id: string; variant_slug: string; variant_title: string; expires_at: string; score_scale: number[]; answers: Record<string, string> }
 export type GradingAttempt = { attempt_id: string; user_email: string | null; variant_slug: string; variant_title: string; submitted_at: string; primary_score: number; secondary_score: number; long_answered: number; long_graded: number }
 export type LongAnswer = { question_position: number; prompt: string; max_points: number; value: string; awarded_points: number; graded: boolean; solution: string | null }
 export type { NicknameStatus } from '@/types/leaderboard'
@@ -70,6 +71,12 @@ export async function getAttemptDeadline(attemptId: string) {
   const { data, error } = await client().rpc('attempt_deadline', { target_attempt: attemptId })
   if (error) throw error
   return data as string
+}
+
+export async function getActiveAttempt(attemptId: string) {
+  const { data, error } = await client().rpc('active_attempt', { target_attempt: attemptId })
+  if (error) throw error
+  return (data?.[0] ?? null) as ActiveAttempt | null
 }
 
 export async function getVariantQuestions(slug: string): Promise<Question[]> {
